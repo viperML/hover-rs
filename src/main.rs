@@ -1,5 +1,11 @@
+use nix::{
+    sched::{clone, unshare, CloneFlags},
+    sys::signal::Signal,
+    unistd::{setuid, Pid, Uid},
+};
 use rand::{distributions::Alphanumeric, Rng};
-use std::path::PathBuf;
+use std::{fs::File, os::unix::process::CommandExt, path::PathBuf};
+use std::{io::Write, time::Duration};
 use tracing::{debug, info};
 
 #[derive(Debug, clap::Parser)]
@@ -12,7 +18,7 @@ fn main() -> eyre::Result<()> {
     {
         use tracing_subscriber::{fmt, prelude::*, EnvFilter};
         tracing_subscriber::registry()
-            .with(fmt::layer().without_time())
+            .with(fmt::layer())
             .with(EnvFilter::from_default_env())
             .init();
     }
@@ -30,7 +36,45 @@ fn main() -> eyre::Result<()> {
     debug!(?tmp_path);
     info!("Temp path: {}", tmp_path.to_string_lossy());
 
-    std::fs::create_dir_all(tmp_path)?;
+    // std::fs::create_dir_all(tmp_path)?;
+
+    let mut stack = [0; 2000];
+
+    let child = unsafe {
+        clone(
+            Box::new(callback),
+            &mut stack,
+                CloneFlags::CLONE_NEWUSER |
+                CloneFlags::CLONE_VFORK
+                ,
+                // | CloneFlags::CLONE_VM,
+            None,
+        )?
+    };
+    debug!(?child);
+
+    // let mut uid_map = File::open(format!("/proc/{}/uid_map", child.as_raw()))?;
+    // write!(&mut uid_map, "0 0 10").unwrap();
+
+    // std::thread::sleep(Duration::from_secs(100000));
 
     Ok(())
+}
+
+fn callback() -> isize {
+    debug!("Hello from callback");
+
+    let mycaps = caps::all();
+    debug!("{:#?}", mycaps);
+
+    loop {
+        let uid = Uid::current();
+        let euid = Uid::effective();
+        let pid = Pid::this();
+        debug!(?uid, ?euid, ?pid);
+
+        std::thread::sleep(Duration::from_secs(1));
+    }
+
+    return 0;
 }
