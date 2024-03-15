@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use nix::mount::{mount, MsFlags};
 use nix::{
     errno::Errno,
@@ -75,15 +76,23 @@ fn main() -> eyre::Result<()> {
         write!(&mut uid_map, "0 1000 1\n")?;
     }
 
-    // {
-    //     let mut gid_map = OpenOptions::new()
-    //         .read(true)
-    //         .write(true)
-    //         .open(format!("/proc/{}/gid_map", child.as_raw()))?;
-    //
-    //     debug!(?gid_map);
-    //     write!(&mut gid_map, "0 100 1\n")?;
-    // }
+    {
+        let mut f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("/proc/{}/setgroups", child.as_raw()))?;
+        write!(&mut f, "deny")?;
+    }
+
+    {
+        let mut gid_map = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("/proc/{}/gid_map", child.as_raw()))?;
+
+        debug!(?gid_map);
+        write!(&mut gid_map, "0 100 1\n")?;
+    }
 
     let status = waitpid(child, None)?;
     debug!(?status);
@@ -101,7 +110,25 @@ fn callback() -> isize {
     let ppid = Pid::parent();
     debug!(?ppid, "Hello from callback");
 
-    mount(Some("tmpfs"), "/mnt", Some("tmpfs"), MsFlags::empty(), NNONE).unwrap();
+    let prefix = "/home/ayats/.cache/hover-rs";
+    mount(Some("tmpfs"), format!("{prefix}/newwork").as_str(), Some("tmpfs"), MsFlags::empty(), NNONE).unwrap();
+
+    let prefix = format!("{prefix}/newwork");
+    for d in ["merged", "lower", "upper", "work"] {
+        let d = format!("{prefix}/{d}");
+        std::fs::create_dir_all(d.as_str()).unwrap();
+    }
+
+    let res = mount(
+        Some("overlay"),
+        format!("{prefix}/merged").as_str(),
+        Some("overlay"),
+        MsFlags::empty(),
+        Some(
+            format!("lowerdir={prefix}/lower,upperdir={prefix}/upper,workdir={prefix}/work").as_str()
+        ),
+    );
+    debug!(?res);
 
     std::process::Command::new("/run/current-system/sw/bin/bash").exec();
 
