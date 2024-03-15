@@ -1,4 +1,6 @@
+use nix::mount::{mount, MsFlags};
 use nix::{
+    errno::Errno,
     libc::SIGCHLD,
     sched::{clone, unshare, CloneFlags},
     sys::{
@@ -54,6 +56,7 @@ fn main() -> eyre::Result<()> {
             Box::new(callback),
             &mut stack,
                 CloneFlags::CLONE_NEWUSER
+                | CloneFlags::CLONE_NEWNS
                 // CloneFlags::CLONE_VFORK
                 ,
                 // | CloneFlags::CLONE_VM,
@@ -62,18 +65,33 @@ fn main() -> eyre::Result<()> {
     };
     debug!(?child);
 
-    let mut uid_map = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(format!("/proc/{}/uid_map", child.as_raw()))?;
-    debug!(?uid_map);
-    write!(&mut uid_map, "0 1000 1\n")?;
+    {
+        let mut uid_map = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("/proc/{}/uid_map", child.as_raw()))?;
+
+        debug!(?uid_map);
+        write!(&mut uid_map, "0 1000 1\n")?;
+    }
+
+    // {
+    //     let mut gid_map = OpenOptions::new()
+    //         .read(true)
+    //         .write(true)
+    //         .open(format!("/proc/{}/gid_map", child.as_raw()))?;
+    //
+    //     debug!(?gid_map);
+    //     write!(&mut gid_map, "0 100 1\n")?;
+    // }
 
     let status = waitpid(child, None)?;
     debug!(?status);
 
     Ok(())
 }
+
+const NNONE: Option<&str> = None;
 
 fn callback() -> isize {
     let pid = Pid::this();
@@ -83,19 +101,9 @@ fn callback() -> isize {
     let ppid = Pid::parent();
     debug!(?ppid, "Hello from callback");
 
-    // let mycaps = caps::all();
-    // debug!("{:#?}", mycaps);
+    mount(Some("tmpfs"), "/mnt", Some("tmpfs"), MsFlags::empty(), NNONE).unwrap();
 
-    for _ in 0..3 {
-        // loop {
-        let uid = Uid::current();
-        let euid = Uid::effective();
-        debug!(?uid, ?euid);
-
-        std::thread::sleep(Duration::from_secs(1));
-    }
-
-    std::process::Command::new("sh").exec();
+    std::process::Command::new("/run/current-system/sw/bin/bash").exec();
 
     return 0;
 }
