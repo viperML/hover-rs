@@ -1,12 +1,17 @@
 use nix::{
+    libc::SIGCHLD,
     sched::{clone, unshare, CloneFlags},
-    sys::{signal::Signal, wait::{wait, waitid, waitpid, WaitPidFlag}},
+    sys::{
+        signal::Signal,
+        wait::{wait, waitid, waitpid, WaitPidFlag},
+    },
     unistd::{setuid, Pid, Uid},
 };
 use rand::{distributions::Alphanumeric, Rng};
+use std::fs::OpenOptions;
 use std::{fs::File, os::unix::process::CommandExt, path::PathBuf};
 use std::{io::Write, time::Duration};
-use tracing::{debug, info};
+use tracing::{debug, info, span, Level};
 
 #[derive(Debug, clap::Parser)]
 struct Args {
@@ -40,6 +45,10 @@ fn main() -> eyre::Result<()> {
 
     let mut stack = [0; 2000];
 
+    let pid = Pid::this();
+    let span = span!(Level::DEBUG, "main span", ?pid);
+    let _entered = span.enter();
+
     let child = unsafe {
         clone(
             Box::new(callback),
@@ -48,34 +57,45 @@ fn main() -> eyre::Result<()> {
                 // CloneFlags::CLONE_VFORK
                 ,
                 // | CloneFlags::CLONE_VM,
-            None,
+            Some(SIGCHLD),
         )?
     };
     debug!(?child);
 
-    let mut uid_map = File::open(format!("/proc/{}/uid_map", child.as_raw()))?;
-    write!(&mut uid_map, "0 1000 1").unwrap();
+    let mut uid_map = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(format!("/proc/{}/uid_map", child.as_raw()))?;
+    debug!(?uid_map);
+    write!(&mut uid_map, "0 1000 1\n")?;
 
-    // std::thread::sleep(Duration::from_secs(100000));
-    waitpid(child, None)?;
+    let status = waitpid(child, None)?;
+    debug!(?status);
 
     Ok(())
 }
 
 fn callback() -> isize {
-    debug!("Hello from callback");
+    let pid = Pid::this();
+    let span = span!(Level::DEBUG, "child span", ?pid);
+    let _entered = span.enter();
 
-    let mycaps = caps::all();
-    debug!("{:#?}", mycaps);
+    let ppid = Pid::parent();
+    debug!(?ppid, "Hello from callback");
+
+    // let mycaps = caps::all();
+    // debug!("{:#?}", mycaps);
 
     for _ in 0..3 {
+        // loop {
         let uid = Uid::current();
         let euid = Uid::effective();
-        let pid = Pid::this();
-        debug!(?uid, ?euid, ?pid);
+        debug!(?uid, ?euid);
 
         std::thread::sleep(Duration::from_secs(1));
     }
+
+    std::process::Command::new("sh").exec();
 
     return 0;
 }
