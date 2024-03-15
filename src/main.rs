@@ -1,6 +1,6 @@
 use nix::{
     sched::{clone, unshare, CloneFlags},
-    sys::signal::Signal,
+    sys::{signal::Signal, wait::{wait, waitid, waitpid, WaitPidFlag}},
     unistd::{setuid, Pid, Uid},
 };
 use rand::{distributions::Alphanumeric, Rng};
@@ -44,8 +44,8 @@ fn main() -> eyre::Result<()> {
         clone(
             Box::new(callback),
             &mut stack,
-                CloneFlags::CLONE_NEWUSER |
-                CloneFlags::CLONE_VFORK
+                CloneFlags::CLONE_NEWUSER
+                // CloneFlags::CLONE_VFORK
                 ,
                 // | CloneFlags::CLONE_VM,
             None,
@@ -53,10 +53,11 @@ fn main() -> eyre::Result<()> {
     };
     debug!(?child);
 
-    // let mut uid_map = File::open(format!("/proc/{}/uid_map", child.as_raw()))?;
-    // write!(&mut uid_map, "0 0 10").unwrap();
+    let mut uid_map = File::open(format!("/proc/{}/uid_map", child.as_raw()))?;
+    write!(&mut uid_map, "0 1000 1").unwrap();
 
     // std::thread::sleep(Duration::from_secs(100000));
+    waitpid(child, None)?;
 
     Ok(())
 }
@@ -67,7 +68,7 @@ fn callback() -> isize {
     let mycaps = caps::all();
     debug!("{:#?}", mycaps);
 
-    loop {
+    for _ in 0..3 {
         let uid = Uid::current();
         let euid = Uid::effective();
         let pid = Pid::this();
