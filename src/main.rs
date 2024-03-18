@@ -1,4 +1,6 @@
 #![allow(unused_imports)]
+mod utils;
+
 use nix::mount::{mount, MsFlags};
 use nix::unistd::{getgid, getuid};
 use nix::{
@@ -17,6 +19,8 @@ use std::io::BufWriter;
 use std::{fs::File, os::unix::process::CommandExt, path::PathBuf};
 use std::{io::Write, time::Duration};
 use tracing::{debug, info, span, Level};
+
+use crate::utils::{callback_wrapper, NNONE};
 
 #[derive(Debug, clap::Parser)]
 struct Args {
@@ -98,29 +102,6 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-const NNONE: Option<&str> = None;
-
-fn callback_wrapper<F, T, E>(inner: F) -> isize
-where
-    F: FnOnce() -> Result<T, E>,
-    T: std::process::Termination,
-    E: std::fmt::Debug,
-{
-    use std::process::ExitCode;
-    use std::process::Termination;
-
-    let res = inner();
-    match res {
-        Ok(_) => {
-            res.report();
-            0
-        }
-        Err(_) => {
-            res.report();
-            1
-        }
-    }
-}
 
 fn callback() -> eyre::Result<()> {
     let pid = Pid::this();
@@ -163,7 +144,6 @@ fn callback() -> eyre::Result<()> {
         MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
         NNONE,
     )?;
-
 
     std::process::Command::new("/run/current-system/sw/bin/bash").exec();
 
