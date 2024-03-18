@@ -152,9 +152,18 @@ fn callback() -> eyre::Result<()> {
         Some(&target),
         format!("/var/empty").as_str(),
         NNONE,
-        MsFlags::MS_BIND | MsFlags::MS_RDONLY | MsFlags::MS_PRIVATE,
+        MsFlags::MS_BIND,
         NNONE,
     )?;
+
+    mount(
+        NNONE,
+        format!("/var/empty").as_str(),
+        NNONE,
+        MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
+        NNONE,
+    )?;
+
 
     std::process::Command::new("/run/current-system/sw/bin/bash").exec();
 
