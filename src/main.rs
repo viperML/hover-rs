@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 use nix::mount::{mount, MsFlags};
+use nix::unistd::{getgid, getuid};
 use nix::{
     errno::Errno,
     libc::SIGCHLD,
@@ -12,6 +13,7 @@ use nix::{
 };
 use rand::{distributions::Alphanumeric, Rng};
 use std::fs::OpenOptions;
+use std::io::BufWriter;
 use std::{fs::File, os::unix::process::CommandExt, path::PathBuf};
 use std::{io::Write, time::Duration};
 use tracing::{debug, info, span, Level};
@@ -26,7 +28,7 @@ fn main() -> eyre::Result<()> {
     {
         use tracing_subscriber::{fmt, prelude::*, EnvFilter};
         tracing_subscriber::registry()
-            .with(fmt::layer())
+            .with(fmt::layer().without_time().with_line_number(true))
             .with(EnvFilter::from_default_env())
             .init();
     }
@@ -54,44 +56,40 @@ fn main() -> eyre::Result<()> {
 
     let child = unsafe {
         clone(
-            Box::new(callback),
+            Box::new(|| callback_wrapper(callback)),
             &mut stack,
-                CloneFlags::CLONE_NEWUSER
-                | CloneFlags::CLONE_NEWNS
-                // CloneFlags::CLONE_VFORK
-                ,
-                // | CloneFlags::CLONE_VM,
+            CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS,
             Some(SIGCHLD),
         )?
     };
     debug!(?child);
 
+    let uid = getuid().as_raw();
+    let gid = getgid().as_raw();
+    debug!(?uid, ?gid);
+
     {
-        let mut uid_map = OpenOptions::new()
+        let f = OpenOptions::new()
             .read(true)
             .write(true)
             .open(format!("/proc/{}/uid_map", child.as_raw()))?;
-
-        debug!(?uid_map);
-        write!(&mut uid_map, "0 1000 1\n")?;
+        write!(&mut BufWriter::new(f), "0 {uid} 1")?;
     }
 
     {
-        let mut f = OpenOptions::new()
+        let f = OpenOptions::new()
             .read(true)
             .write(true)
             .open(format!("/proc/{}/setgroups", child.as_raw()))?;
-        write!(&mut f, "deny")?;
+        write!(&mut BufWriter::new(f), "deny")?;
     }
 
     {
-        let mut gid_map = OpenOptions::new()
+        let f = OpenOptions::new()
             .read(true)
             .write(true)
             .open(format!("/proc/{}/gid_map", child.as_raw()))?;
-
-        debug!(?gid_map);
-        write!(&mut gid_map, "0 100 1\n")?;
+        write!(&mut BufWriter::new(f), "0 {gid} 1")?;
     }
 
     let status = waitpid(child, None)?;
@@ -102,7 +100,29 @@ fn main() -> eyre::Result<()> {
 
 const NNONE: Option<&str> = None;
 
-fn callback() -> isize {
+fn callback_wrapper<F, T, E>(inner: F) -> isize
+where
+    F: FnOnce() -> Result<T, E>,
+    T: std::process::Termination,
+    E: std::fmt::Debug,
+{
+    use std::process::ExitCode;
+    use std::process::Termination;
+
+    let res = inner();
+    match res {
+        Ok(_) => {
+            res.report();
+            0
+        }
+        Err(_) => {
+            res.report();
+            1
+        }
+    }
+}
+
+fn callback() -> eyre::Result<()> {
     let pid = Pid::this();
     let span = span!(Level::DEBUG, "child span", ?pid);
     let _entered = span.enter();
@@ -110,27 +130,33 @@ fn callback() -> isize {
     let ppid = Pid::parent();
     debug!(?ppid, "Hello from callback");
 
-    let prefix = "/home/ayats/.cache/hover-rs";
-    mount(Some("tmpfs"), format!("{prefix}/newwork").as_str(), Some("tmpfs"), MsFlags::empty(), NNONE).unwrap();
+    // TODO: sync when namespaces are ready
+    std::thread::sleep(Duration::from_millis(200));
 
-    let prefix = format!("{prefix}/newwork");
-    for d in ["merged", "lower", "upper", "work"] {
-        let d = format!("{prefix}/{d}");
-        std::fs::create_dir_all(d.as_str()).unwrap();
-    }
+    let uid = Uid::current();
+    let euid = Uid::effective();
+    debug!(?uid, ?euid);
 
-    let res = mount(
-        Some("overlay"),
-        format!("{prefix}/merged").as_str(),
-        Some("overlay"),
+    let prefix = "/var/empty";
+    let target = PathBuf::from(std::env::var("PWD")?);
+
+    mount(
+        Some("tmpfs"),
+        prefix,
+        Some("tmpfs"),
         MsFlags::empty(),
-        Some(
-            format!("lowerdir={prefix}/lower,upperdir={prefix}/upper,workdir={prefix}/work").as_str()
-        ),
-    );
-    debug!(?res);
+        NNONE,
+    )?;
+
+    mount(
+        Some(&target),
+        format!("/var/empty").as_str(),
+        NNONE,
+        MsFlags::MS_BIND | MsFlags::MS_RDONLY | MsFlags::MS_PRIVATE,
+        NNONE,
+    )?;
 
     std::process::Command::new("/run/current-system/sw/bin/bash").exec();
 
-    return 0;
+    Ok(())
 }
