@@ -2,7 +2,7 @@
 mod utils;
 
 use nix::mount::{mount, MsFlags};
-use nix::unistd::{getgid, getuid};
+use nix::unistd::{getgid, getpid, getuid};
 use nix::{
     errno::Errno,
     libc::SIGCHLD,
@@ -52,86 +52,57 @@ fn main() -> eyre::Result<()> {
 
     // std::fs::create_dir_all(tmp_path)?;
 
-    let mut stack = [0; 2000];
-
     let pid = Pid::this();
     let span = span!(Level::DEBUG, "main span", ?pid);
     let _entered = span.enter();
-
-    let child = unsafe {
-        clone(
-            Box::new(|| callback_wrapper(callback)),
-            &mut stack,
-            CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS,
-            Some(SIGCHLD),
-        )?
-    };
-    debug!(?child);
 
     let uid = getuid().as_raw();
     let gid = getgid().as_raw();
     debug!(?uid, ?gid);
 
+    let pid = getpid();
+    unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS)?;
+
     {
-        let f = OpenOptions::new()
+        let mut f = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/proc/{}/uid_map", child.as_raw()))?;
-        write!(&mut BufWriter::new(f), "0 {uid} 1")?;
+            .open(format!("/proc/{}/uid_map", pid.as_raw()))?;
+        let msg = format!("0 {uid} 1");
+        write!(&mut f, "{msg}")?;
     }
 
     {
-        let f = OpenOptions::new()
+        let mut f = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/proc/{}/setgroups", child.as_raw()))?;
-        write!(&mut BufWriter::new(f), "deny")?;
+            .open(format!("/proc/{}/setgroups", pid.as_raw()))?;
+        write!(&mut f, "deny")?;
     }
 
     {
-        let f = OpenOptions::new()
+        let mut f = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/proc/{}/gid_map", child.as_raw()))?;
-        write!(&mut BufWriter::new(f), "0 {gid} 1")?;
+            .open(format!("/proc/{}/gid_map", pid.as_raw()))?;
+        let msg = format!("0 {gid} 1");
+        write!(&mut f, "{msg}")?;
     }
 
-    let status = waitpid(child, None)?;
-    debug!(?status);
-
-    Ok(())
-}
-
-
-fn callback() -> eyre::Result<()> {
-    let pid = Pid::this();
-    let span = span!(Level::DEBUG, "child span", ?pid);
-    let _entered = span.enter();
-
-    let ppid = Pid::parent();
-    debug!(?ppid, "Hello from callback");
-
-    // TODO: sync when namespaces are ready
-    std::thread::sleep(Duration::from_millis(200));
-
-    let uid = Uid::current();
-    let euid = Uid::effective();
-    debug!(?uid, ?euid);
-
-    let prefix = "/var/empty";
     let target = PathBuf::from(std::env::var("PWD")?);
+    let prefix = "/home/ayats/.cache/hover-rs";
 
-    mount(
-        Some("tmpfs"),
-        prefix,
-        Some("tmpfs"),
-        MsFlags::empty(),
-        NNONE,
-    )?;
+    // mount(
+    //     Some("tmpfs"),
+    //     "/home/ayats/.cache/hover-rs/layer",
+    //     Some("tmpfs"),
+    //     MsFlags::empty(),
+    //     NNONE,
+    // )?;
 
     mount(
         Some(&target),
-        format!("/var/empty").as_str(),
+        "/home/ayats/.cache/hover-rs/home",
         NNONE,
         MsFlags::MS_BIND,
         NNONE,
@@ -139,11 +110,29 @@ fn callback() -> eyre::Result<()> {
 
     mount(
         NNONE,
-        format!("/var/empty").as_str(),
+        "/home/ayats/.cache/hover-rs/home",
         NNONE,
         MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
         NNONE,
     )?;
+
+    mount(
+        Some("overlay"),
+        format!("{prefix}/newroot").as_str(),
+        Some("overlay"),
+        MsFlags::empty(),
+        Some(format!("lowerdir={prefix}/home,upperdir={prefix}/layer,workdir={prefix}/work").as_str()),
+    )?;
+    // mount(
+    //     Some("overlay"),
+    //     "/home/ayats/.cache/hover-rs/newroot",
+    //     Some("overlay"),
+    //     MsFlags::empty(),
+    //     Some(
+    //         format!("lowerdir={prefix}/home,upperdir={prefix}/layer,workdir={prefix}/work")
+    //             .as_str(),
+    //     ),
+    // )?;
 
     std::process::Command::new("/run/current-system/sw/bin/bash").exec();
 
