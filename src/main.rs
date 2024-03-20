@@ -2,7 +2,7 @@ mod utils;
 
 use crate::utils::NNONE;
 
-use eyre::Context;
+use eyre::{bail, Context};
 use nix::mount::{mount, MsFlags};
 use nix::sched::{unshare, CloneFlags};
 use nix::unistd::{getgid, getpid, getuid};
@@ -33,9 +33,9 @@ fn main() -> eyre::Result<()> {
     let args = <Args as clap::Parser>::parse();
     debug!(?args);
 
-    if let None = env::var("HOVER").ok() {
+    if let Some(_) = env::var("HOVER").ok() {
         // TODO: allow stacked hovers, keep track of hover level
-        error!("You are hovering too much!");
+        bail!("You are hovering too much!");
     };
 
     let app_cache = env::var("XDG_CACHE_HOME")
