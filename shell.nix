@@ -7,6 +7,7 @@ mkShell {
     rustfmt
     man-pages
     man-pages-posix
+    clippy
   ];
   env.RUST_SRC_PATH = "${rustPlatform.rustLibSrc}";
 }

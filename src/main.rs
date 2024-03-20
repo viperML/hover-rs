@@ -1,31 +1,16 @@
-#![allow(unused_imports)]
 mod utils;
+
+use crate::utils::NNONE;
 
 use eyre::{Context, ContextCompat};
 use nix::mount::{mount, MsFlags};
+use nix::sched::{unshare, CloneFlags};
 use nix::unistd::{getgid, getpid, getuid};
-use nix::{
-    errno::Errno,
-    libc::SIGCHLD,
-    sched::{clone, unshare, CloneFlags},
-    sys::{
-        signal::Signal,
-        wait::{wait, waitid, waitpid, WaitPidFlag},
-    },
-    unistd::{setuid, Pid, Uid},
-};
-use rand::{distributions::Alphanumeric, Rng};
-use std::ffi::OsString;
 use std::fs::OpenOptions;
-use std::io::BufWriter;
+use std::io::Write;
 use std::{env, fs};
-use std::{fs::File, os::unix::process::CommandExt, path::PathBuf};
-use std::{io::Write, time::Duration};
-use tracing::{debug, info, span, Level};
-
-use crate::utils::{callback_wrapper, NNONE};
-
-// trait MyCommand: Iterator<Item = OsString> + Clone {}
+use std::{os::unix::process::CommandExt, path::PathBuf};
+use tracing::debug;
 
 #[derive(Debug, clap::Parser)]
 struct Args {
@@ -128,17 +113,14 @@ fn main() -> eyre::Result<()> {
         ),
     )?;
 
-
     let mut command = args.command.into_iter();
     let argv0 = command
         .next()
         .or_else(|| env::var("SHELL").ok())
         .unwrap_or(String::from("sh"));
 
-    Err(std::process::Command::new(argv0)
-        .args(command)
-        .exec())
-    .wrap_err("Running the provided command")
+    Err(std::process::Command::new(argv0).args(command).exec())
+        .wrap_err("Running the provided command")
 
     // Ok(())
 }

@@ -8,7 +8,7 @@ where
     T: std::process::Termination,
     E: std::fmt::Debug,
 {
-    use std::process::ExitCode;
+    
     use std::process::Termination;
 
     let res = inner();
