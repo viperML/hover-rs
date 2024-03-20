@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 mod utils;
 
+use eyre::{Context, ContextCompat};
 use nix::mount::{mount, MsFlags};
 use nix::unistd::{getgid, getpid, getuid};
 use nix::{
@@ -14,17 +15,26 @@ use nix::{
     unistd::{setuid, Pid, Uid},
 };
 use rand::{distributions::Alphanumeric, Rng};
+use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
+use std::{env, fs};
 use std::{fs::File, os::unix::process::CommandExt, path::PathBuf};
 use std::{io::Write, time::Duration};
 use tracing::{debug, info, span, Level};
 
 use crate::utils::{callback_wrapper, NNONE};
 
+// trait MyCommand: Iterator<Item = OsString> + Clone {}
+
 #[derive(Debug, clap::Parser)]
 struct Args {
+    #[arg(short, long)]
     tmp_path: Option<PathBuf>,
+
+    // #[arg(last = true)]
+    #[arg(trailing_var_arg = true)]
+    command: Vec<String>,
 }
 
 fn main() -> eyre::Result<()> {
@@ -38,36 +48,27 @@ fn main() -> eyre::Result<()> {
     }
 
     let args = <Args as clap::Parser>::parse();
+    debug!(?args);
 
-    let mut rng = rand::thread_rng();
-    let unique: String = (0..6).map(|_| rng.sample(Alphanumeric) as char).collect();
-    let now = time::OffsetDateTime::now_utc()
-        .format(&time::format_description::parse("[year]-[month]-[day]")?)?;
+    let xdg = microxdg::XdgApp::new("hover-rs")?;
+    let xdg_cache = xdg.app_cache()?;
+    let xdg_runtime = xdg.runtime()?.wrap_err("XDG_RUNTIME_DIR not set")?;
 
-    let tmp_path = PathBuf::from(std::env::var("XDG_CACHE_HOME")?)
-        .join("hover-rs")
-        .join(format!("{now}.{unique}"));
-    debug!(?tmp_path);
-    info!("Temp path: {}", tmp_path.to_string_lossy());
-
-    // std::fs::create_dir_all(tmp_path)?;
-
-    let pid = Pid::this();
-    let span = span!(Level::DEBUG, "main span", ?pid);
-    let _entered = span.enter();
+    std::fs::create_dir_all(&xdg_cache)?;
+    std::fs::create_dir_all(&xdg_runtime)?;
 
     let uid = getuid().as_raw();
     let gid = getgid().as_raw();
-    debug!(?uid, ?gid);
+    let pid = getpid().as_raw();
+    debug!(?uid, ?gid, ?pid);
 
-    let pid = getpid();
     unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS)?;
 
     {
         let mut f = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/proc/{}/uid_map", pid.as_raw()))?;
+            .open(format!("/proc/{pid}/uid_map"))?;
         let msg = format!("0 {uid} 1");
         write!(&mut f, "{msg}")?;
     }
@@ -76,7 +77,7 @@ fn main() -> eyre::Result<()> {
         let mut f = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/proc/{}/setgroups", pid.as_raw()))?;
+            .open(format!("/proc/{pid}/setgroups"))?;
         write!(&mut f, "deny")?;
     }
 
@@ -84,57 +85,60 @@ fn main() -> eyre::Result<()> {
         let mut f = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/proc/{}/gid_map", pid.as_raw()))?;
+            .open(format!("/proc/{pid}/gid_map"))?;
         let msg = format!("0 {gid} 1");
         write!(&mut f, "{msg}")?;
     }
 
-    let target = PathBuf::from(std::env::var("PWD")?);
-    let prefix = "/home/ayats/.cache/hover-rs";
+    let oldroot = xdg_runtime.join("oldroot");
+    fs::create_dir_all(&oldroot)?;
 
-    // mount(
-    //     Some("tmpfs"),
-    //     "/home/ayats/.cache/hover-rs/layer",
-    //     Some("tmpfs"),
-    //     MsFlags::empty(),
-    //     NNONE,
-    // )?;
-
-    mount(
-        Some(&target),
-        "/home/ayats/.cache/hover-rs/home",
-        NNONE,
-        MsFlags::MS_BIND,
-        NNONE,
-    )?;
+    // Mount root dir as RO
+    mount(Some(xdg.home()), &oldroot, NNONE, MsFlags::MS_BIND, NNONE)?;
 
     mount(
         NNONE,
-        "/home/ayats/.cache/hover-rs/home",
+        &oldroot,
         NNONE,
         MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
         NNONE,
     )?;
 
+    let newroot = xdg_runtime.join("newroot");
+    fs::create_dir_all(&newroot)?;
+
+    let layer = xdg_cache.join("layer");
+    fs::create_dir_all(&layer)?;
+    let work = xdg_cache.join("work");
+    fs::create_dir_all(&work)?;
+
     mount(
         Some("overlay"),
-        format!("{prefix}/newroot").as_str(),
+        &newroot,
         Some("overlay"),
         MsFlags::empty(),
-        Some(format!("lowerdir={prefix}/home,upperdir={prefix}/layer,workdir={prefix}/work").as_str()),
+        Some(
+            format!(
+                "lowerdir={},upperdir={},workdir={}",
+                oldroot.to_string_lossy(),
+                layer.to_string_lossy(),
+                work.to_string_lossy()
+            )
+            .as_str(),
+        ),
     )?;
-    // mount(
-    //     Some("overlay"),
-    //     "/home/ayats/.cache/hover-rs/newroot",
-    //     Some("overlay"),
-    //     MsFlags::empty(),
-    //     Some(
-    //         format!("lowerdir={prefix}/home,upperdir={prefix}/layer,workdir={prefix}/work")
-    //             .as_str(),
-    //     ),
-    // )?;
 
-    std::process::Command::new("/run/current-system/sw/bin/bash").exec();
 
-    Ok(())
+    let mut command = args.command.into_iter();
+    let argv0 = command
+        .next()
+        .or_else(|| env::var("SHELL").ok())
+        .unwrap_or(String::from("sh"));
+
+    Err(std::process::Command::new(argv0)
+        .args(command)
+        .exec())
+    .wrap_err("Running the provided command")
+
+    // Ok(())
 }

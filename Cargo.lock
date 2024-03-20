@@ -246,6 +246,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "eyre",
+ "microxdg",
  "nix",
  "rand",
  "time",
@@ -297,6 +298,12 @@ name = "memchr"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
+
+[[package]]
+name = "microxdg"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdcd3dc4ca0d1a9b1b80576639e93911a3e1db25a31ab6e6ba33027429adde5e"
 
 [[package]]
 name = "miniz_oxide"
