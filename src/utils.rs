@@ -1,4 +1,3 @@
-
 /// None but for nix's types
 pub const NNONE: Option<&str> = None;
 
@@ -8,7 +7,6 @@ where
     T: std::process::Termination,
     E: std::fmt::Debug,
 {
-    
     use std::process::Termination;
 
     let res = inner();

@@ -1,25 +1,25 @@
 mod utils;
 
-use crate::utils::{callback_wrapper, NNONE};
+use crate::utils::NNONE;
 
 use caps::{CapSet, Capability};
 use eyre::{bail, ensure, Context};
-use nix::libc::{gid_t, uid_t, SIGCHLD, SIGKILL};
+use nix::libc::SIGCHLD;
 use nix::mount::{mount, MsFlags};
-use nix::sched::{clone, setns, unshare, CloneFlags};
+use nix::sched::{clone, unshare, CloneFlags};
 use nix::sys::prctl::set_pdeathsig;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{fork, getgid, getpid, getuid, Gid, Pid, Uid, User};
-use std::fs::{File, OpenOptions};
+use nix::unistd::{getgid, getpid, getuid, Gid, Uid};
+use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::fd::AsFd;
+
 use std::path::Path;
-use std::process::{exit, Command};
+use std::process::Command;
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 use std::{os::unix::process::CommandExt, path::PathBuf};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 #[derive(Debug, clap::Parser)]
 struct Args {
@@ -41,7 +41,7 @@ fn main() -> eyre::Result<()> {
     let args = <Args as clap::Parser>::parse();
     debug!(?args);
 
-    if let Some(_) = env::var("HOVER").ok() {
+    if env::var("HOVER").is_ok() {
         // TODO: allow stacked hovers, keep track of hover level
         bail!("You are hovering too much!");
     };
