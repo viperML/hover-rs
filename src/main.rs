@@ -1,14 +1,22 @@
 mod utils;
 
-use crate::utils::NNONE;
+use crate::utils::{callback_wrapper, NNONE};
 
-use eyre::{bail, Context};
+use caps::{CapSet, Capability};
+use eyre::{bail, ensure, Context};
+use nix::libc::{gid_t, uid_t, SIGCHLD, SIGKILL};
 use nix::mount::{mount, MsFlags};
-use nix::sched::{unshare, CloneFlags};
-use nix::unistd::{getgid, getpid, getuid};
-use std::fs::OpenOptions;
+use nix::sched::{clone, setns, unshare, CloneFlags};
+use nix::sys::prctl::set_pdeathsig;
+use nix::sys::signal::Signal;
+use nix::sys::wait::{waitpid, WaitStatus};
+use nix::unistd::{fork, getgid, getpid, getuid, Gid, Pid, Uid, User};
+use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::time::SystemTime;
+use std::os::fd::AsFd;
+use std::path::Path;
+use std::process::{exit, Command};
+use std::time::{Duration, SystemTime};
 use std::{env, fs};
 use std::{os::unix::process::CommandExt, path::PathBuf};
 use tracing::{debug, error, warn};
@@ -38,6 +46,13 @@ fn main() -> eyre::Result<()> {
         bail!("You are hovering too much!");
     };
 
+    let uid = getuid();
+    let gid = getgid();
+    let pid = getpid();
+    debug!(?uid, ?gid, ?pid);
+
+    ensure!(!uid.is_root(), "hover-rs is not made to be run as root!");
+
     let app_cache = env::var("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| env::var("HOME").map(PathBuf::from).unwrap().join(".cache"))
@@ -62,44 +77,94 @@ fn main() -> eyre::Result<()> {
         .unwrap_or_else(|_| PathBuf::from("/tmp").join(format!("hover-rs-{allocation}")));
     std::fs::create_dir_all(&app_runtime)?;
 
+    let mut cmd = {
+        let mut command = args.command.into_iter();
+        let argv0 = command
+            .next()
+            .or_else(|| env::var("SHELL").ok())
+            .unwrap_or(String::from("sh"));
+        let mut cmd = std::process::Command::new(argv0);
+        cmd.args(command);
+        cmd
+    };
+
+    let mut stack = [0; 2000];
+    let child = unsafe {
+        clone(
+            Box::new(|| {
+                callback_wrapper(|| -> eyre::Result<()> {
+                    set_pdeathsig(Some(Signal::SIGTERM))?;
+                    slave(&app_runtime, &app_cache, &allocation, uid, gid)?;
+                    Command::new(env::var("SHELL")?).exec();
+                    // Ok(())
+                    todo!()
+                })
+            }),
+            &mut stack,
+            CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS,
+            Some(SIGCHLD),
+        )
+    }?;
+
+    let privileged = {
+        let mycaps = caps::read(None, CapSet::Effective)?;
+        mycaps.contains(&Capability::CAP_SETUID) && mycaps.contains(&Capability::CAP_SETGID)
+    };
+
+    debug!(?privileged);
+
+    {
+        let mut f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("/proc/{child}/uid_map"))?;
+        let msg = format!("0 {uid} 1");
+        f.write(msg.as_bytes())
+            .wrap_err("Setting uid_map for child process")?;
+    }
+    {
+        let mut f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("/proc/{child}/setgroups"))?;
+        f.write("deny".as_bytes())
+            .wrap_err("Setting setgroups for child process")?;
+    }
+    {
+        let mut f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("/proc/{child}/gid_map"))?;
+        let msg = format!("0 {gid} 1");
+        f.write(msg.as_bytes())
+            .wrap_err("Setting gid_map for child process")?;
+    }
+
+    let ret = waitpid(child, None)?;
+    if let WaitStatus::Exited(_, 0) = ret {
+        debug!(?ret);
+    } else {
+        error!(?ret);
+    }
+
+    Ok(())
+}
+
+fn slave(
+    app_runtime: &Path,
+    app_cache: &Path,
+    allocation: &str,
+    uid: Uid,
+    gid: Gid,
+) -> eyre::Result<()> {
     let target = PathBuf::from(env::var("HOME")?);
 
-    let uid = getuid().as_raw();
-    let gid = getgid().as_raw();
-    let pid = getpid().as_raw();
-    debug!(?uid, ?gid, ?pid);
-
-    unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS)?;
-
-    {
-        let mut f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(format!("/proc/self/uid_map"))?;
-        let msg = format!("0 {uid} 1");
-        write!(&mut f, "{msg}")?;
-    }
-
-    {
-        let mut f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(format!("/proc/self/setgroups"))?;
-        write!(&mut f, "deny")?;
-    }
-
-    {
-        let mut f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(format!("/proc/self/gid_map"))?;
-        let msg = format!("0 {gid} 1");
-        write!(&mut f, "{msg}")?;
-    }
+    // TODO sync
+    std::thread::sleep(Duration::from_millis(200));
 
     mount(
         Some("tmpfs"),
-        &app_runtime,
+        app_runtime,
         Some("tmpfs"),
         MsFlags::empty(),
         NNONE,
@@ -145,29 +210,27 @@ fn main() -> eyre::Result<()> {
 
     mount(Some(&newroot), &target, NNONE, MsFlags::MS_BIND, NNONE)?;
 
+    unshare(CloneFlags::CLONE_NEWUSER)?;
+
     {
-        use owo_colors::OwoColorize;
-        println!("You are now {}", "hovering~".blink());
-        println!(
-            "  A layer is covering your {}",
-            target.to_string_lossy().bold().red()
-        );
-        println!(
-            "  You can find the layer leftovers at: {}",
-            layer_dir.to_string_lossy().bold().red()
-        );
+        let mut f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/proc/self/uid_map")?;
+        let msg = format!("{uid} 0 1");
+        f.write(msg.as_bytes())?;
+    }
+    {
+        let mut f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/proc/self/gid_map")?;
+        let msg = format!("{gid} 0 1");
+        f.write(msg.as_bytes())?;
     }
 
     env::set_var("HOVER", "1");
+    // Command::new(env::var("SHELL")?).exec();
 
-    let mut command = args.command.into_iter();
-    let argv0 = command
-        .next()
-        .or_else(|| env::var("SHELL").ok())
-        .unwrap_or(String::from("sh"));
-
-    Err(std::process::Command::new(argv0).args(command).exec())
-        .wrap_err("Running the provided command")
-
-    // Ok(())
+    Ok(())
 }

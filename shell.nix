@@ -8,6 +8,8 @@ mkShell {
     man-pages
     man-pages-posix
     clippy
+    bubblewrap
+    strace
   ];
   env.RUST_SRC_PATH = "${rustPlatform.rustLibSrc}";
 }
