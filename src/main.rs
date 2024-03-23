@@ -77,28 +77,24 @@ fn main() -> eyre::Result<()> {
         .unwrap_or_else(|_| PathBuf::from("/tmp").join(format!("hover-rs-{allocation}")));
     std::fs::create_dir_all(&app_runtime)?;
 
-    let mut cmd = {
-        let mut command = args.command.into_iter();
-        let argv0 = command
-            .next()
-            .or_else(|| env::var("SHELL").ok())
-            .unwrap_or(String::from("sh"));
-        let mut cmd = std::process::Command::new(argv0);
-        cmd.args(command);
-        cmd
+    let (argv0, argv) = if args.command.is_empty() {
+        (env::var("SHELL").ok().unwrap_or(String::from("sh")), vec![])
+    } else {
+        let mut _args = args.command.into_iter();
+        (_args.next().unwrap(), _args.collect())
     };
+    let mut cmd = Command::new(argv0);
+    cmd.args(argv);
 
-    let mut stack = [0; 2000];
+    let mut stack = [0; 4000];
     let child = unsafe {
         clone(
-            Box::new(|| {
-                callback_wrapper(|| -> eyre::Result<()> {
-                    set_pdeathsig(Some(Signal::SIGTERM))?;
-                    slave(&app_runtime, &app_cache, &allocation, uid, gid)?;
-                    Command::new(env::var("SHELL")?).exec();
-                    // Ok(())
-                    todo!()
-                })
+            Box::new(move || {
+                set_pdeathsig(Some(Signal::SIGTERM)).unwrap();
+                slave(&app_runtime, &app_cache, &allocation, uid, gid).unwrap();
+                // Command::new(env::var("SHELL")?).exec();
+                cmd.exec();
+                todo!()
             }),
             &mut stack,
             CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS,
