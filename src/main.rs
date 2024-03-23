@@ -225,8 +225,20 @@ fn slave(
         f.write(msg.as_bytes())?;
     }
 
+    {
+        use owo_colors::OwoColorize;
+        println!("You are now {}", "hovering~".blink());
+        println!(
+            "  A layer is covering your {}",
+            target.to_string_lossy().bold().red()
+        );
+        println!(
+            "  You can find the layer leftovers at: {}",
+            layer_dir.to_string_lossy().bold().red()
+        );
+    }
+
     env::set_var("HOVER", "1");
-    // Command::new(env::var("SHELL")?).exec();
 
     Ok(())
 }
