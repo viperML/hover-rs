@@ -4,7 +4,6 @@ use crate::utils::NNONE;
 
 use caps::{CapSet, Capability};
 use eyre::{bail, ensure, Context};
-use format_bytes::format_bytes;
 use nix::libc::SIGCHLD;
 use nix::mount::{mount, MsFlags};
 use nix::sched::{clone, unshare, CloneFlags};

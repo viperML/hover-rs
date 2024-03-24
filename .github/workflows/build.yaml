@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/github-workflow.json
+name: Build and release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "master"
+
+permissions:
+  contents: write
+
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Update release tag
+        uses: EndBug/latest-tag@latest
+
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Install Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Build
+        run: |
+          mkdir release
+          nix build .#pkgsCross.musl64.hover-rs -L
+          cp -vL ./result/bin/hover release/hover-static-x86_64-linux
+
+      - uses: ncipollo/release-action@v1
+        name: Release
+        with:
+          tag: latest
+          makeLatest: true
+          omitBody: true
+          omitName: true
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: "release/*"
+

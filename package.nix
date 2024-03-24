@@ -1,4 +1,8 @@
-{ rustPlatform, lib }:
+{
+  rustPlatform,
+  lib,
+  targetPlatform,
+}:
 rustPlatform.buildRustPackage {
   name = "hover-rs";
 
@@ -15,6 +19,9 @@ rustPlatform.buildRustPackage {
 
   strictDeps = true;
   cargoLock.lockFile = ./Cargo.lock;
+
+  env.RUSTFLAGS = lib.optionalString (targetPlatform.libc == "musl") "-C target-feature=+crt-static";
+
   meta = {
     mainProgram = "hover";
   };
