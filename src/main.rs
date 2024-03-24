@@ -205,6 +205,24 @@ fn slave(
     // Workdir is under the overlay
     env::set_current_dir(env::current_dir()?)?;
 
+    // Seal the working dirs from the user
+    mount(
+        Some("/var/empty"),
+        app_runtime,
+        NNONE,
+        MsFlags::MS_BIND,
+        NNONE,
+    )?;
+
+    mount(
+        Some("/var/empty"),
+        app_cache,
+        NNONE,
+        MsFlags::MS_BIND,
+        NNONE,
+    )?;
+
+
     unshare(CloneFlags::CLONE_NEWUSER)?;
 
     {
@@ -226,13 +244,13 @@ fn slave(
 
     {
         use owo_colors::OwoColorize;
-        println!("You are now {}", "hovering~".blink());
+        println!("You are now {}", "hovering~".bold());
         println!(
             "  A layer is covering your {}",
             target.to_string_lossy().bold().red()
         );
         println!(
-            "  You can find the layer leftovers at: {}",
+            "  You will find the leftovers at: {}",
             layer_dir.to_string_lossy().bold().red()
         );
     }
