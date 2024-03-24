@@ -4,6 +4,7 @@ use crate::utils::NNONE;
 
 use caps::{CapSet, Capability};
 use eyre::{bail, ensure, Context};
+use format_bytes::format_bytes;
 use nix::libc::SIGCHLD;
 use nix::mount::{mount, MsFlags};
 use nix::sched::{clone, unshare, CloneFlags};
@@ -13,7 +14,6 @@ use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{getgid, getpid, getuid, Gid, Uid};
 use std::fs::OpenOptions;
 use std::io::Write;
-
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -136,12 +136,14 @@ fn main() -> eyre::Result<()> {
             .wrap_err("Setting gid_map for child process")?;
     }
 
-    let ret = waitpid(child, None)?;
-    if let WaitStatus::Exited(_, 0) = ret {
-        debug!(?ret);
+    let r#return = waitpid(child, None)?;
+    if let WaitStatus::Exited(_, 0) = r#return {
+        debug!(?r#return);
     } else {
-        error!(?ret);
+        error!(?r#return);
     }
+
+    println!("Leaving hover!");
 
     Ok(())
 }
@@ -171,7 +173,6 @@ fn slave(
 
     // Mount root dir as RO
     mount(Some(&target), &ro_mount, NNONE, MsFlags::MS_BIND, NNONE)?;
-
     mount(
         NNONE,
         &ro_mount,
@@ -180,9 +181,6 @@ fn slave(
         NNONE,
     )?;
 
-    let newroot = app_runtime.join("newroot");
-    fs::create_dir_all(&newroot)?;
-
     let layer_dir = app_cache.join(format!("layer-{allocation}"));
     fs::create_dir_all(&layer_dir)?;
     let work_dir = app_cache.join(format!(".work-{allocation}"));
@@ -190,7 +188,7 @@ fn slave(
 
     mount(
         Some("overlay"),
-        &newroot,
+        &target,
         Some("overlay"),
         MsFlags::empty(),
         Some(
@@ -200,11 +198,12 @@ fn slave(
                 layer_dir.to_string_lossy(),
                 work_dir.to_string_lossy()
             )
-            .as_str(),
+            .as_str(), // format_bytes!(b"lowerdir={}", ro_mount.as_os_str().as_bytes()).as_slice(),
         ),
     )?;
 
-    mount(Some(&newroot), &target, NNONE, MsFlags::MS_BIND, NNONE)?;
+    // Workdir is under the overlay
+    env::set_current_dir(env::current_dir()?)?;
 
     unshare(CloneFlags::CLONE_NEWUSER)?;
 

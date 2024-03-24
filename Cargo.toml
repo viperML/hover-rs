@@ -14,6 +14,7 @@ caps = "0.5.5"
 clap = { version = "4.5.2", features = ["derive"] }
 color-eyre = "0.6.2"
 eyre = "0.6.12"
+format-bytes = "0.3.0"
 nix = { version = "0.28.0", features = ["fs", "feature", "sched", "user", "mount"] }
 owo-colors = "4.0.0"
 rand = "0.8.5"
