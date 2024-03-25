@@ -11,6 +11,7 @@ use nix::sys::prctl::set_pdeathsig;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{getgid, getpid, getuid, Gid, Uid};
+use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
@@ -185,21 +186,23 @@ fn slave(
     let work_dir = app_cache.join(format!(".work-{allocation}"));
     fs::create_dir_all(&work_dir)?;
 
-    mount(
-        Some("overlay"),
-        &target,
-        Some("overlay"),
-        MsFlags::empty(),
-        Some(
-            format!(
-                "lowerdir={},upperdir={},workdir={}",
-                ro_mount.to_string_lossy(),
-                layer_dir.to_string_lossy(),
-                work_dir.to_string_lossy()
-            )
-            .as_str(), // format_bytes!(b"lowerdir={}", ro_mount.as_os_str().as_bytes()).as_slice(),
-        ),
-    )?;
+    {
+        // Don't use format! because the paths might not be valid str, keep OsStr's
+        let mut opts = OsString::from("lowerdir=");
+        opts.push(ro_mount.as_os_str());
+        opts.push(",upperdir=");
+        opts.push(layer_dir.as_os_str());
+        opts.push(",workdir=");
+        opts.push(work_dir);
+
+        mount(
+            Some("overlay"),
+            &target,
+            Some("overlay"),
+            MsFlags::empty(),
+            Some(opts.as_os_str()),
+        )?;
+    }
 
     // Workdir is under the overlay
     env::set_current_dir(env::current_dir()?)?;
@@ -221,7 +224,7 @@ fn slave(
         NNONE,
     )?;
 
-
+    // Map back to original user
     unshare(CloneFlags::CLONE_NEWUSER)?;
 
     {
