@@ -11,14 +11,14 @@ use nix::sched::{clone, unshare, CloneFlags};
 use nix::sys::prctl::set_pdeathsig;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{close, getgid, getpid, getuid, pipe, read, Gid, Uid};
+use nix::unistd::{close, getgid, getpid, getuid, Gid, Uid};
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::fd::{AsFd, AsRawFd};
+
 use std::path::Path;
 use std::process::Command;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use std::{env, fs};
 use std::{os::unix::process::CommandExt, path::PathBuf};
 use tracing::{debug, error};
