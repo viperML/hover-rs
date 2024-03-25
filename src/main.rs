@@ -1,6 +1,6 @@
 mod utils;
 
-use crate::utils::NNONE;
+use crate::utils::{callback_wrapper, NNONE};
 
 use caps::{CapSet, Capability};
 use eyre::{bail, ensure, Context};
@@ -90,11 +90,12 @@ fn main() -> eyre::Result<()> {
     let child = unsafe {
         clone(
             Box::new(move || {
-                set_pdeathsig(Some(Signal::SIGTERM)).unwrap();
-                slave(&app_runtime, &app_cache, &allocation, uid, gid).unwrap();
-                // Command::new(env::var("SHELL")?).exec();
-                cmd.exec();
-                todo!()
+                callback_wrapper(|| -> eyre::Result<()> {
+                    set_pdeathsig(Some(Signal::SIGTERM))?;
+                    slave(&app_runtime, &app_cache, &allocation, uid, gid)?;
+                    let error = cmd.exec();
+                    Err(error).wrap_err("Failed to execute the command")
+                })
             }),
             &mut stack,
             CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNS,
@@ -142,8 +143,6 @@ fn main() -> eyre::Result<()> {
     } else {
         error!(?r#return);
     }
-
-    println!("Leaving hover!");
 
     Ok(())
 }
