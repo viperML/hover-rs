@@ -1,21 +1,21 @@
 mod utils;
-mod shm;
 
-use crate::shm::ProcMutex;
 use crate::utils::{callback_wrapper, NNONE};
 
 use caps::{CapSet, Capability};
 use eyre::{bail, ensure, Context};
+use nix::errno::Errno;
 use nix::libc::SIGCHLD;
 use nix::mount::{mount, MsFlags};
 use nix::sched::{clone, unshare, CloneFlags};
 use nix::sys::prctl::set_pdeathsig;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{getgid, getpid, getuid, Gid, Uid};
+use nix::unistd::{close, getgid, getpid, getuid, pipe, read, Gid, Uid};
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::fd::{AsFd, AsRawFd};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -88,17 +88,29 @@ fn main() -> eyre::Result<()> {
     let mut cmd = Command::new(argv0);
     cmd.args(argv);
 
-    let procmutex = ProcMutex::new()?;
-    let procmutex_name = procmutex.name.clone();
-    procmutex.lock()?;
+    let pipe = unsafe {
+        let mut fds = [-1; 2];
+        let ret = libc::pipe(fds.as_mut_ptr());
+        if ret == -1 {
+            return Err(Errno::last()).wrap_err("Failed to create pipe");
+        }
+        (fds[0], fds[1])
+    };
+    debug!(?pipe);
 
     let mut stack = [0; 4000];
     let child = unsafe {
         clone(
             Box::new(move || {
                 callback_wrapper(|| -> eyre::Result<()> {
-                    let procmutex = ProcMutex::open(&procmutex_name)?;
-                    procmutex.lock()?;
+                    // Close writing pipe
+                    close(pipe.1)?;
+
+                    debug!("Waiting for parent...");
+                    let mut dummy = [0];
+                    libc::read(pipe.0, dummy.as_mut_ptr() as _, 1);
+                    debug!("Parent done");
+
                     set_pdeathsig(Some(Signal::SIGTERM))?;
                     slave(&app_runtime, &app_cache, &allocation, uid, gid)?;
                     let error = cmd.exec();
@@ -110,6 +122,9 @@ fn main() -> eyre::Result<()> {
             Some(SIGCHLD),
         )
     }?;
+
+    // Close reading pipe
+    close(pipe.0)?;
 
     let privileged = {
         let mycaps = caps::read(None, CapSet::Effective)?;
@@ -145,7 +160,8 @@ fn main() -> eyre::Result<()> {
             .wrap_err("Setting gid_map for child process")?;
     }
 
-    drop(procmutex);
+    // Close writing pipe. Setup is done
+    close(pipe.1)?;
 
     let r#return = waitpid(child, None)?;
     if let WaitStatus::Exited(_, 0) = r#return {
