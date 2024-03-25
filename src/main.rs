@@ -1,5 +1,7 @@
 mod utils;
+mod shm;
 
+use crate::shm::ProcMutex;
 use crate::utils::{callback_wrapper, NNONE};
 
 use caps::{CapSet, Capability};
@@ -86,11 +88,17 @@ fn main() -> eyre::Result<()> {
     let mut cmd = Command::new(argv0);
     cmd.args(argv);
 
+    let procmutex = ProcMutex::new()?;
+    let procmutex_name = procmutex.name.clone();
+    procmutex.lock()?;
+
     let mut stack = [0; 4000];
     let child = unsafe {
         clone(
             Box::new(move || {
                 callback_wrapper(|| -> eyre::Result<()> {
+                    let procmutex = ProcMutex::open(&procmutex_name)?;
+                    procmutex.lock()?;
                     set_pdeathsig(Some(Signal::SIGTERM))?;
                     slave(&app_runtime, &app_cache, &allocation, uid, gid)?;
                     let error = cmd.exec();
@@ -137,6 +145,8 @@ fn main() -> eyre::Result<()> {
             .wrap_err("Setting gid_map for child process")?;
     }
 
+    drop(procmutex);
+
     let r#return = waitpid(child, None)?;
     if let WaitStatus::Exited(_, 0) = r#return {
         debug!(?r#return);
@@ -155,9 +165,6 @@ fn slave(
     gid: Gid,
 ) -> eyre::Result<()> {
     let target = PathBuf::from(env::var("HOME")?);
-
-    // TODO sync
-    std::thread::sleep(Duration::from_millis(200));
 
     mount(
         Some("tmpfs"),
