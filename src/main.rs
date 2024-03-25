@@ -44,8 +44,7 @@ fn main() -> eyre::Result<()> {
     debug!(?args);
 
     if env::var("HOVER").is_ok() {
-        // TODO: allow stacked hovers, keep track of hover level
-        bail!("You are hovering too much!");
+        bail!("hover can't be stacked!");
     };
 
     let uid = getuid();
