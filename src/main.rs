@@ -24,8 +24,9 @@ use std::{os::unix::process::CommandExt, path::PathBuf};
 use tracing::{debug, error};
 
 #[derive(Debug, clap::Parser)]
+/// hover-rs: protective home overlay
 struct Args {
-    // #[arg(last = true)]
+    /// Command and arguments to execute
     #[arg(trailing_var_arg = true)]
     command: Vec<String>,
 }
