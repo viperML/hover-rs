@@ -10,6 +10,11 @@ license = "EUPL-1.2"
 name = "hover"
 path = "src/main.rs"
 
+[profile.release]
+lto = true
+strip = "symbols"
+opt-level = "z"
+
 [dependencies]
 caps = "0.5.5"
 clap = { version = "~4.4.7", features = ["derive"] }
