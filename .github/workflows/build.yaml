@@ -35,6 +35,8 @@ jobs:
           nix build .#pkgsCross.musl64.hover-rs -L
           cp -vL ./result/bin/hover release/hover-static-x86_64-linux
 
+          gzip -c ./result/bin/hover > release/hover-static-x86_64-linux.gz
+
       - uses: ncipollo/release-action@v1
         name: Release
         with:
