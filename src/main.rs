@@ -11,13 +11,10 @@ use nix::sched::{clone, unshare, CloneFlags};
 use nix::sys::prctl::set_pdeathsig;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{close, getgid, getpid, getuid, Gid, Pid, Uid};
-use once_cell::sync::OnceCell;
+use nix::unistd::{close, Gid, Uid};
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
-
-use std::path::Path;
 use std::process::Command;
 use std::time::SystemTime;
 use std::{env, fs};
@@ -64,7 +61,10 @@ fn main() -> eyre::Result<()> {
 
     let config = Config::build()?;
 
-    ensure!(!config.uid.is_root(), "hover-rs is not made to be run as root!");
+    ensure!(
+        !config.uid.is_root(),
+        "hover-rs is not made to be run as root!"
+    );
 
     let (argv0, argv) = if args.command.is_empty() {
         (env::var("SHELL").ok().unwrap_or(String::from("sh")), vec![])
