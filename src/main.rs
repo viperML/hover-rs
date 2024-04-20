@@ -11,7 +11,7 @@ use nix::sched::{clone, unshare, CloneFlags};
 use nix::sys::prctl::set_pdeathsig;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{close, Gid, Pid, Uid};
+use nix::unistd::{close, isatty, Gid, Pid, Uid};
 use owo_colors::OwoColorize;
 use std::ffi::OsString;
 use std::fs::OpenOptions;
@@ -69,6 +69,10 @@ fn main() -> eyre::Result<()> {
     );
 
     let (argv0, argv): (OsString, Vec<OsString>) = if args.command.is_empty() {
+        if !isatty(libc::STDIN_FILENO )? {
+            bail!("Not running as a tty, and no program provided, aborting");
+        }
+
         let parent = Pid::parent();
         let parent_exe = fs::read_link(format!("/proc/{}/exe", parent))?;
         let mut cmdline = fs::read(format!("/proc/{}/cmdline", parent))?;
