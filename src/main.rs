@@ -11,11 +11,12 @@ use nix::sched::{clone, unshare, CloneFlags};
 use nix::sys::prctl::set_pdeathsig;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{close, Gid, Uid};
+use nix::unistd::{close, Gid, Pid, Uid};
 use owo_colors::OwoColorize;
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::unix::ffi::OsStringExt;
 use std::process::Command;
 use std::time::SystemTime;
 use std::{env, fs};
@@ -27,7 +28,7 @@ use tracing::{debug, error};
 struct Args {
     /// Command and arguments to execute
     #[arg(trailing_var_arg = true)]
-    command: Vec<String>,
+    command: Vec<OsString>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,8 +68,32 @@ fn main() -> eyre::Result<()> {
         "hover-rs is not made to be run as root!"
     );
 
-    let (argv0, argv) = if args.command.is_empty() {
-        (env::var("SHELL").ok().unwrap_or(String::from("sh")), vec![])
+    let (argv0, argv): (OsString, Vec<OsString>) = if args.command.is_empty() {
+        let parent = Pid::parent();
+        let parent_exe = fs::read_link(format!("/proc/{}/exe", parent))?;
+        let mut cmdline = fs::read(format!("/proc/{}/cmdline", parent))?;
+        cmdline.pop(); // removes trailing \0
+        let parent_argv = cmdline
+            .into_iter()
+            .fold(Vec::new(), |mut acc, x| {
+                if x == 0 {
+                    acc.push(Vec::new());
+                } else {
+                    if acc.is_empty() {
+                        acc.push(Vec::new());
+                    }
+                    acc.last_mut().unwrap().push(x);
+                }
+                acc
+            })
+            .into_iter()
+            .map(OsString::from_vec);
+
+        let mut parent_argv = parent_argv.collect::<Vec<_>>();
+        parent_argv.remove(0); // remove argv0, we use exe
+        debug!(?parent_exe, ?parent_argv);
+
+        (parent_exe.as_os_str().to_owned(), parent_argv)
     } else {
         let mut _args = args.command.into_iter();
         (_args.next().unwrap(), _args.collect())
