@@ -12,6 +12,7 @@ use nix::sys::prctl::set_pdeathsig;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{close, Gid, Uid};
+use owo_colors::OwoColorize;
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -148,6 +149,16 @@ fn main() -> eyre::Result<()> {
             .wrap_err("Setting gid_map for child process")?;
     }
 
+    println!("You are now {}", "hovering~".bold());
+    println!(
+        "  A layer is covering your {}",
+        config.target.to_string_lossy().bold().red()
+    );
+    println!(
+        "  You can find your top layer in: {}",
+        config.layer.to_string_lossy().bold().red()
+    );
+
     // Close writing pipe. Setup is done
     close(pipe.1)?;
 
@@ -157,6 +168,12 @@ fn main() -> eyre::Result<()> {
     } else {
         error!(?r#return);
     }
+
+    println!("Leaving {}", "hover".bold());
+    println!(
+        "  You can find your top layer in: {}",
+        config.layer.to_string_lossy().bold().red()
+    );
 
     Ok(())
 }
@@ -245,19 +262,6 @@ fn setup(config: &Config) -> eyre::Result<()> {
             .open("/proc/self/gid_map")?;
         let msg = format!("{} 0 1", config.gid);
         f.write(msg.as_bytes())?;
-    }
-
-    {
-        use owo_colors::OwoColorize;
-        println!("You are now {}", "hovering~".bold());
-        println!(
-            "  A layer is covering your {}",
-            config.target.to_string_lossy().bold().red()
-        );
-        println!(
-            "  You will find the leftovers at: {}",
-            config.layer.to_string_lossy().bold().red()
-        );
     }
 
     Ok(())
