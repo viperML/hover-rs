@@ -242,6 +242,7 @@ dependencies = [
  "eyre",
  "libc",
  "nix",
+ "once_cell",
  "owo-colors",
  "rand",
  "time",
