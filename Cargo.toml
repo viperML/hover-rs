@@ -18,6 +18,7 @@ opt-level = "z"
 [dependencies]
 caps = "0.5.5"
 clap = { version = "~4.4.7", features = ["derive"] }
+clap_complete = "4.5.2"
 color-eyre = "0.6.2"
 eyre = "0.6.8"
 libc = "0.2.148"

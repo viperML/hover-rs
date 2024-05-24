@@ -2,6 +2,7 @@
   rustPlatform,
   lib,
   targetPlatform,
+  installShellFiles,
 }:
 rustPlatform.buildRustPackage {
   name = "hover-rs";
@@ -21,6 +22,22 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ./Cargo.lock;
 
   env.RUSTFLAGS = lib.optionalString (targetPlatform.libc == "musl") "-C target-feature=+crt-static";
+
+  nativeBuildInputs = [
+    installShellFiles
+  ];
+
+  preFixup = ''
+    mkdir completions
+
+    for shell in bash zsh fish; do
+      $out/bin/hover --completions $shell > completions/hover.$shell
+    done
+
+    installShellCompletion completions/*
+  '';
+
+  doCheck = false;
 
   meta = {
     mainProgram = "hover";

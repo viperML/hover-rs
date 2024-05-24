@@ -3,6 +3,7 @@ mod utils;
 use crate::utils::{callback_wrapper, NNONE};
 
 use caps::{CapSet, Capability};
+use clap::ValueHint::CommandWithArguments;
 use eyre::{bail, ensure, Context};
 use nix::errno::Errno;
 use nix::libc::SIGCHLD;
@@ -26,8 +27,12 @@ use tracing::{debug, error};
 #[derive(Debug, clap::Parser)]
 /// hover-rs: protective home overlay
 struct Args {
+    /// Generate completions
+    #[clap(long)]
+    completions: Option<clap_complete::Shell>,
+
     /// Command and arguments to execute
-    #[arg(trailing_var_arg = true)]
+    #[arg(trailing_var_arg = true, num_args=1.., value_hint=CommandWithArguments)]
     command: Vec<OsString>,
 }
 
@@ -61,6 +66,12 @@ fn main() -> eyre::Result<()> {
     let args = <Args as clap::Parser>::parse();
     debug!(?args);
 
+    if let Some(shell) = args.completions {
+        let mut cmd = <Args as clap::CommandFactory>::command();
+        clap_complete::generate(shell, &mut cmd, "hover", &mut std::io::stdout());
+        return Ok(());
+    }
+
     let config = Config::build()?;
 
     ensure!(
@@ -69,7 +80,7 @@ fn main() -> eyre::Result<()> {
     );
 
     let (argv0, argv): (OsString, Vec<OsString>) = if args.command.is_empty() {
-        if !isatty(libc::STDIN_FILENO )? {
+        if !isatty(libc::STDIN_FILENO)? {
             bail!("Not running as a tty, and no program provided, aborting");
         }
 
