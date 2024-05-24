@@ -23,6 +23,10 @@ CONFIG_NAMESPACES=y
 nix build github:viperML/hover-rs
 ```
 
+```
+guix build -L .
+```
+
 ## Attribution
 
 Inspired by https://github.com/max-privatevoid/hover , which uses fuse instead of namespaces.
