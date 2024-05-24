@@ -7,14 +7,13 @@
   #:use-module (guix utils)
   #:use-module (gnu packages crates-io))
 
-(define vcs-file?
-  (or (git-predicate (current-source-directory))
-      (const #t)))
+(define location
+  (current-source-directory))
 
-(define local-source
+(define-public local-source
   (local-file "." "source"
               #:recursive? #t
-              #:select? (git-predicate (current-source-directory))))
+              #:select? (git-predicate location)))
 
 (define-public hover-rs
   (package
