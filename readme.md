@@ -22,6 +22,25 @@ hover-rs uses Linux's user namespaces to mount a volatile overlayfs over your
 $HOME. Any write or delete operation is redirected to the upper layer, while
 your $HOME is left intact. Read more in my blogpost: [https://ayats.org/blog/hover](https://ayats.org/blog/hover).
 
+## Usage
+
+```
+$ hover                 # Enter hover by just running the command
+You are now hovering~
+  A layer is covering your /home/ayats
+  You can find your top layer in: /home/ayats/.cache/hover-rs/layer-2024-06-11-0635-evCxznv
+
+$ touch foo             # File "foo" is created under the hover
+
+$ exit                  # Hover is just a subprocess
+
+Leaving hover
+  You can find your top layer in: /home/ayats/.cache/hover-rs/layer-2024-06-11-0635-evCxznv
+
+$ file foo              # File "foo" is gone
+foo: cannot open `foo' (No such file or directory)
+```
+
 ## Requirements
 
 Your kernel must have user namespaces and overlayfs enabled:
