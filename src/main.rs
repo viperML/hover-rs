@@ -16,7 +16,7 @@ use nix::unistd::{close, isatty, Gid, Pid, Uid};
 use owo_colors::OwoColorize;
 use std::ffi::OsString;
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{stderr, Write};
 use std::os::unix::ffi::OsStringExt;
 use std::process::Command;
 use std::time::SystemTime;
@@ -34,6 +34,10 @@ struct Args {
     /// Command and arguments to execute
     #[arg(trailing_var_arg = true, num_args=1.., value_hint=CommandWithArguments)]
     command: Vec<OsString>,
+
+    /// Don't show info messages
+    #[arg(short, long)]
+    quiet: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +57,12 @@ fn main() -> eyre::Result<()> {
         color_eyre::install()?;
         use tracing_subscriber::{fmt, prelude::*, EnvFilter};
         tracing_subscriber::registry()
-            .with(fmt::layer().without_time().with_line_number(true))
+            .with(
+                fmt::layer()
+                    .without_time()
+                    .with_line_number(true)
+                    .with_writer(stderr),
+            )
             .with(EnvFilter::from_default_env())
             .init();
 
@@ -189,15 +198,17 @@ fn main() -> eyre::Result<()> {
             .wrap_err("Setting gid_map for child process")?;
     }
 
-    println!("You are now {}", "hovering~".bold());
-    println!(
-        "  A layer is covering your {}",
-        config.target.to_string_lossy().bold().red()
-    );
-    println!(
-        "  You can find your top layer in: {}",
-        config.layer.to_string_lossy().bold().red()
-    );
+    if !args.quiet {
+        println!("You are now {}", "hovering~".bold());
+        println!(
+            "  A layer is covering your {}",
+            config.target.to_string_lossy().bold().red()
+        );
+        println!(
+            "  You can find your top layer in: {}",
+            config.layer.to_string_lossy().bold().red()
+        );
+    }
 
     // Close writing pipe. Setup is done
     close(pipe.1)?;
@@ -209,11 +220,13 @@ fn main() -> eyre::Result<()> {
         error!(?r#return);
     }
 
-    println!("Leaving {}", "hover".bold());
-    println!(
-        "  You can find your top layer in: {}",
-        config.layer.to_string_lossy().bold().red()
-    );
+    if !args.quiet {
+        println!("Leaving {}", "hover".bold());
+        println!(
+            "  You can find your top layer in: {}",
+            config.layer.to_string_lossy().bold().red()
+        );
+    }
 
     Ok(())
 }
