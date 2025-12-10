@@ -1,7 +1,7 @@
 {
   rustPlatform,
   lib,
-  targetPlatform,
+  stdenv,
   installShellFiles,
 }:
 rustPlatform.buildRustPackage {
@@ -21,7 +21,7 @@ rustPlatform.buildRustPackage {
   strictDeps = true;
   cargoLock.lockFile = ./Cargo.lock;
 
-  env.RUSTFLAGS = lib.optionalString (targetPlatform.libc == "musl") "-C target-feature=+crt-static";
+  env.RUSTFLAGS = lib.optionalString (stdenv.targetPlatform.libc == "musl") "-C target-feature=+crt-static";
 
   nativeBuildInputs = [
     installShellFiles
